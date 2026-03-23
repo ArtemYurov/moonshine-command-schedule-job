@@ -22,6 +22,7 @@ use MoonShine\Support\ListOf;
 use MoonShine\UI\Components\Layout\Box;
 use MoonShine\UI\Components\Snippet;
 use MoonShine\UI\Fields\Fieldset;
+use MoonShine\UI\Fields\Date;
 use MoonShine\UI\Fields\ID;
 use MoonShine\UI\Fields\Json;
 use MoonShine\UI\Fields\Preview;
@@ -70,8 +71,9 @@ class CommandScheduleJobResource extends ModelResource
             ]),
             Text::make(__('command-schedule-job::messages.resource.frequency'), 'frequency')
                 ->changePreview(fn($value, Text $field) => $value ? $this->formatTwoLineDisplay($this->getDefaultDescription($value) ?: '—', $this->formatFrequencyArgs($field->getData()?->getOriginal()->frequency_args)) : ''),
-            Text::make(__('command-schedule-job::messages.resource.last_run'), 'last_run_at')
-                ->changePreview(fn($value, $field) => $value ?: '—'),
+            Date::make(__('command-schedule-job::messages.resource.last_run'), 'last_run_at')
+                ->withTime()
+                ->changePreview(fn($value) => $this->formatDateTimeWithBreak($value)),
             Text::make(__('command-schedule-job::messages.resource.next_run'), 'next_run_at')
                 ->changePreview(fn($value, $field) => $this->getNextRunTime($field->getData()?->getOriginal())),
 
@@ -220,6 +222,17 @@ class CommandScheduleJobResource extends ModelResource
         return $html;
     }
 
+    private function formatDateTimeWithBreak(string|Carbon|null $value): string
+    {
+        if (!$value) {
+            return '—';
+        }
+
+        $carbon = $value instanceof Carbon ? $value : Carbon::parse($value);
+
+        return '<span style="white-space:nowrap">' . $carbon->format('Y-m-d') . '<br>' . $carbon->format('H:i:s') . '</span>';
+    }
+
     private function formatTwoLineDisplay(string $mainLine, string $subLine = ''): string
     {
         if (empty($subLine)) {
@@ -320,7 +333,7 @@ class CommandScheduleJobResource extends ModelResource
                 $timezone = new DateTimeZone(config('app.timezone', 'UTC'));
                 $nextRun = $event->nextRunDate($timezone);
 
-                return Carbon::instance($nextRun)->format('Y-m-d H:i:s');
+                return $this->formatDateTimeWithBreak(Carbon::instance($nextRun));
             }
 
             return '—';
