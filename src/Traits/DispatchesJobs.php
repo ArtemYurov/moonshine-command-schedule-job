@@ -48,6 +48,10 @@ trait DispatchesJobs
             return $job->tags();
         }
 
+        if ($this->hasMoonshineDbJobLogTrait() && class_exists(\ArtemYurov\JobLog\Tags\TagResolver::class)) {
+            return app(\ArtemYurov\JobLog\Tags\TagResolver::class)->resolve($job);
+        }
+
         if (class_exists(\Laravel\Horizon\Tags::class)) {
             return \Laravel\Horizon\Tags::for($job);
         }
@@ -64,7 +68,7 @@ trait DispatchesJobs
             return $this->getActiveJobsViaMoonshineDbJobLog($tags);
         }
 
-        if (class_exists(\Laravel\Horizon\Contracts\JobRepository::class)) {
+        if (interface_exists(\Laravel\Horizon\Contracts\JobRepository::class)) {
             return $this->getActiveJobsViaHorizon($tags);
         }
 
@@ -169,7 +173,7 @@ trait DispatchesJobs
 
     protected function hasMoonshineDbJobLogTrait(): bool
     {
-        if (!$this->jobClass || !class_exists(\ArtemYurov\JobLog\Traits\Loggable::class)) {
+        if (!$this->jobClass || !trait_exists(\ArtemYurov\JobLog\Traits\Loggable::class)) {
             return false;
         }
 
