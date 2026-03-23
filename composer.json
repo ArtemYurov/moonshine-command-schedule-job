@@ -1,0 +1,42 @@
+{
+    "name": "artemyurov/moonshine-command-schedule-job",
+    "description": "Single entry point for Laravel scheduled commands and queued jobs with MoonShine admin UI",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "illuminate/support": "^11.0|^12.0",
+        "illuminate/database": "^11.0|^12.0",
+        "illuminate/console": "^11.0|^12.0",
+        "moonshine/moonshine": "^4.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^9.0|^10.0",
+        "phpunit/phpunit": "^10.5|^11.0"
+    },
+    "suggest": {
+        "laravel/horizon": "Required for queue-based job deduplication and termination in CommandScheduleJobService",
+        "ext-posix": "Required for PID-based process termination",
+        "illuminate/redis": "Required for queue job deletion via Horizon",
+        "artemyurov/moonshine-db-joblog": "Required for PID-based job termination in CommandScheduleJobService"
+    },
+    "autoload": {
+        "psr-4": {
+            "ArtemYurov\\CommandScheduleJob\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "ArtemYurov\\CommandScheduleJob\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "ArtemYurov\\CommandScheduleJob\\Providers\\CommandScheduleJobServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

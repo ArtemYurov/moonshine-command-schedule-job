@@ -1,0 +1,43 @@
+<?php
+
+namespace {{ namespace }};
+
+use ArtemYurov\CommandScheduleJob\CommandScheduleJobService;
+
+class {{ class }} extends CommandScheduleJobService
+{
+    /**
+     * The artisan command signature.
+     *
+     * @var string
+     */
+    protected string $commandSignature = '{{ command }}';
+
+    /**
+     * The service description.
+     *
+     * @var string
+     */
+    protected string $commandDescription = 'Service description';
+
+    /**
+     * The job class to dispatch. Set to null for synchronous execution.
+     *
+     * @var class-string|null
+     */
+    protected ?string $jobClass = {{ jobClass }};
+
+    /**
+     * Handle the service execution.
+     */
+    protected function handle(array $params = []): void
+    {
+        //
+
+        if ($this->jobClass) {
+            // Arguments are passed to the job constructor:
+            // $this->dispatchJob($model, $data);
+            $this->dispatchJob();
+        }
+    }
+}
