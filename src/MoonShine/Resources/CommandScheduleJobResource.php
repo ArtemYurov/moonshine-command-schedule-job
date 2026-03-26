@@ -176,7 +176,7 @@ class CommandScheduleJobResource extends ModelResource
         parent::onLoad();
 
         try {
-            CommandScheduleJob::syncAll();
+            CommandScheduleJob::syncWithRegistry();
         } catch (Exception $e) {
             Log::warning('Failed to sync service schedule: ' . $e->getMessage());
         }

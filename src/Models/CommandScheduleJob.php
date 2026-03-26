@@ -3,7 +3,7 @@
 namespace ArtemYurov\CommandScheduleJob\Models;
 
 use ArtemYurov\CommandScheduleJob\CommandScheduleJobService;
-use ArtemYurov\CommandScheduleJob\Providers\CommandScheduleJobServiceProvider;
+use ArtemYurov\CommandScheduleJob\CommandScheduleJobServiceRegistry;
 use Illuminate\Database\Eloquent\Model;
 use Carbon\Carbon;
 
@@ -61,9 +61,9 @@ class CommandScheduleJob extends Model
         );
     }
 
-    public static function syncAll(): void
+    public static function syncWithRegistry(): void
     {
-        $serviceClasses = CommandScheduleJobServiceProvider::discoverServices();
+        $serviceClasses = app(CommandScheduleJobServiceRegistry::class)->all();
 
         foreach ($serviceClasses as $serviceClass) {
             self::findOrCreateForService($serviceClass);

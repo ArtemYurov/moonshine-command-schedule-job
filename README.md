@@ -61,9 +61,13 @@ php artisan vendor:publish --tag=command-schedule-job-config
 
 ---
 
-## Service Discovery
+## Service Registration
 
-The package auto-discovers services by scanning configured directories:
+Services are collected from three sources (merged, deduplicated):
+
+### 1. Auto-discovery
+
+Scans configured directories for non-abstract classes extending `CommandScheduleJobService`:
 
 ```php
 // config/command-schedule-job.php
@@ -73,7 +77,35 @@ The package auto-discovers services by scanning configured directories:
 ],
 ```
 
-Any non-abstract class extending `CommandScheduleJobService` found in these paths will be auto-registered.
+### 2. Config registration
+
+Explicitly list service classes in config:
+
+```php
+// config/command-schedule-job.php
+'services' => [
+    \App\Services\MyCustomService::class,
+],
+```
+
+### 3. Programmatic registration (for packages)
+
+Register services from a package's `ServiceProvider`:
+
+```php
+use ArtemYurov\CommandScheduleJob\CommandScheduleJobServiceRegistry;
+
+class MyPackageServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        app(CommandScheduleJobServiceRegistry::class)
+            ->register(MyPackageSyncService::class);
+    }
+}
+```
+
+All three sources are merged via `CommandScheduleJobServiceRegistry`.
 
 ---
 
@@ -97,6 +129,7 @@ Any non-abstract class extending `CommandScheduleJobService` found in these path
 ```php
 // config/command-schedule-job.php
 return [
+    'services' => [],
     'discovery' => [
         'paths' => ['app/Services/'],
         'namespaces' => ['App\\Services'],

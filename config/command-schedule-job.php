@@ -4,6 +4,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Registered Services
+    |--------------------------------------------------------------------------
+    |
+    | Explicitly registered service classes. These are merged with
+    | auto-discovered services and programmatically registered ones.
+    |
+    | Example: \App\Services\MyCustomService::class,
+    |
+    */
+
+    'services' => [],
+
+    /*
+    |--------------------------------------------------------------------------
     | Service Discovery
     |--------------------------------------------------------------------------
     |
