@@ -49,15 +49,39 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Default Without Overlapping Job Expires At
+    | Default Should Be Unique Job Expires At
     |--------------------------------------------------------------------------
     |
-    | How far back (in minutes) to search for active jobs with matching tags.
-    | Jobs older than this are considered stale and ignored during overlap check.
-    | Can be overridden per-service via $withoutOverlappingJobExpiresAt.
+    | Look-back window (seconds) for the dispatch-time uniqueness check; older
+    | active jobs are treated as stale. Per-service: $shouldBeUniqueJobExpiresAt.
     |
     */
 
-    'default_without_overlapping_job_expires_at' => 180,
+    'default_should_be_unique_job_expires_at' => 3 * 60 * 60, // 3 hours
+
+    /*
+    |--------------------------------------------------------------------------
+    | Default Without Overlapping Job Release After
+    |--------------------------------------------------------------------------
+    |
+    | Release delay (seconds) for the overlap middleware: a job that hits an active
+    | peer is released and retried after this. Per-service: $withoutOverlappingJobReleaseAfter.
+    |
+    */
+
+    'default_without_overlapping_job_release_after' => 10, // 10 seconds
+
+    /*
+    |--------------------------------------------------------------------------
+    | Default Without Overlapping Job Expires At
+    |--------------------------------------------------------------------------
+    |
+    | Lock TTL (seconds) for the NATIVE fallback middleware only (unused by the
+    | JobLog middleware); should exceed the job's max run time. Per-service:
+    | $withoutOverlappingJobExpiresAt.
+    |
+    */
+
+    'default_without_overlapping_job_expires_at' => 60 * 60, // 1 hour
 
 ];

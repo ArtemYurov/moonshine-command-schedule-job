@@ -17,6 +17,7 @@ class CommandScheduleJob extends Model
         'frequency_args',
         'last_run_at',
         'description',
+        'should_be_unique_job',
         'without_overlapping_job',
     ];
 
@@ -29,6 +30,7 @@ class CommandScheduleJob extends Model
         'schedule_enabled' => 'boolean',
         'frequency_args' => 'array',
         'last_run_at' => 'datetime',
+        'should_be_unique_job' => 'boolean',
         'without_overlapping_job' => 'boolean',
     ];
 
@@ -39,8 +41,11 @@ class CommandScheduleJob extends Model
 
     public static function findOrCreateForService(string $serviceClass): self
     {
+        $service = null;
+
         try {
-            $data = app($serviceClass)->getDefaults();
+            $service = app($serviceClass);
+            $data = $service->getDefaults();
         } catch (\Exception $e) {
             $data = [];
         }
@@ -52,7 +57,13 @@ class CommandScheduleJob extends Model
         } else {
             $data['schedule_enabled'] = $existing->schedule_enabled && !empty($data['frequency']);
 
-            unset($data['frequency'], $data['frequency_args'], $data['without_overlapping_job']);
+            unset($data['frequency'], $data['frequency_args'], $data['should_be_unique_job'], $data['without_overlapping_job']);
+        }
+
+        // A non-schedulable service keeps its row but can never carry an enabled
+        // schedule — gracefully extinguish any previously enabled cron.
+        if ($service instanceof CommandScheduleJobService && !$service->isSchedulable()) {
+            $data['schedule_enabled'] = false;
         }
 
         return self::updateOrCreate(

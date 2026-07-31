@@ -119,8 +119,26 @@ All three sources are merged via `CommandScheduleJobServiceRegistry`.
 | `$scheduleFrequencyArgs` | `?array` | `null` | Arguments for the frequency method |
 | `$scheduleConsoleArgs` | `?string` | `null` | Extra console arguments for the scheduled command |
 | `$jobClass` | `?string` | `null` | Job class to dispatch (null = sync execution) |
-| `$withoutOverlappingJob` | `bool` | `true` | Check for active jobs before dispatch |
-| `$withoutOverlappingJobExpiresAt` | `?int` | `null` | Lookup window in minutes (null = config default) |
+| `$schedulable` | `bool` | `true` | Code-only capability flag. When `false`, the service never enters the scheduler (no cron entry, hidden schedule fields in the admin UI) — but `php artisan <command>` still works |
+| `$shouldBeUniqueJob` | `bool` | `false` | Dispatch-guard: drop/takeover an already-active job with matching tags before dispatch |
+| `$shouldBeUniqueJobExpiresAt` | `?int` | `null` | Active-job lookup window in seconds (null = config default) |
+| `$withoutOverlappingJob` | `bool` | `false` | Execution-level overlap middleware: serialize a run that hits an active peer (release/retry) |
+| `$withoutOverlappingJobReleaseAfter` | `?int` | `null` | Overlap middleware release delay in seconds (null = config default) |
+| `$withoutOverlappingJobDontRelease` | `bool` | `false` | Code-only overlap behaviour: `false` = serialize (release/retry), `true` = drop the overlapping run instead of waiting |
+| `$withoutOverlappingJobExpiresAt` | `?int` | `null` | Native fallback lock TTL in seconds (null = config default) |
+
+### Storage principle
+
+```
+DB = on/off + when          code = how + how-long
+```
+
+- **DB (admin-editable):** schedule (`schedule_enabled`, `frequency`, `frequency_args`, `schedule_console_args`) plus the two protection toggles (`should_be_unique_job`, `without_overlapping_job`).
+- **Code (developer, structural):** timings, serialize-vs-drop (`$withoutOverlappingJobDontRelease`), own/native middleware choice, and `$schedulable`. These never get DB columns.
+
+### Overlap prevention contract
+
+In serialize mode a job that hits an active peer is **released back to the queue** and retried, which consumes an attempt. So give it a retry budget — `public function retryUntil(): \DateTime` (preferred; also caps the wait) or `public int $tries > 1` — otherwise the first release exhausts its single attempt and the run is lost.
 
 ---
 
@@ -135,7 +153,12 @@ return [
         'namespaces' => ['App\\Services'],
     ],
     'table' => 'command_schedule_jobs',
-    'default_without_overlapping_job_expires_at' => 180,
+    // How far back (seconds) the dispatch-guard looks for an active job.
+    'default_should_be_unique_job_expires_at' => 3 * 60 * 60,   // 3 hours
+    // Overlap middleware release delay (seconds) in serialize mode.
+    'default_without_overlapping_job_release_after' => 10,      // 10 seconds
+    // Native fallback lock TTL (seconds); should cover the job's max run time.
+    'default_without_overlapping_job_expires_at' => 60 * 60,    // 1 hour
 ];
 ```
 

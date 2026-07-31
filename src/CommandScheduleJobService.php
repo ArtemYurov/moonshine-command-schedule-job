@@ -31,10 +31,25 @@ abstract class CommandScheduleJobService
     protected bool $dispatchSync = false;
     protected bool $forceRun = false;
 
-    /** Job deduplication — check for active jobs before dispatch */
-    protected bool $withoutOverlappingJob = true;
+    /** Whether this service may enter the scheduler. Code-only (no DB column); a non-schedulable service never gets a cron entry, but can still be run manually. */
+    protected bool $schedulable = true;
 
-    /** Active job lookup window (minutes). null = from config default_without_overlapping_job_expires_at */
+    /** Job deduplication — drop/takeover an already-active job before dispatch (ShouldBeUnique semantics). Opt-in. */
+    protected bool $shouldBeUniqueJob = false;
+
+    /** Active job lookup window (seconds). null = from config default_should_be_unique_job_expires_at */
+    protected ?int $shouldBeUniqueJobExpiresAt = null;
+
+    /** Execution-level overlap prevention — attach middleware on dispatch (serialize via release/retry, not drop) */
+    protected bool $withoutOverlappingJob = false;
+
+    /** Overlap middleware release delay (seconds). null = from config default_without_overlapping_job_release_after */
+    protected ?int $withoutOverlappingJobReleaseAfter = null;
+
+    /** Overlap behaviour — serialize (release/retry, default) vs drop (dontRelease). Code-only (no DB column); drop can silently discard work. */
+    protected bool $withoutOverlappingJobDontRelease = false;
+
+    /** Native fallback lock TTL (seconds); should cover the job's max run time. null = from config default_without_overlapping_job_expires_at */
     protected ?int $withoutOverlappingJobExpiresAt = null;
 
     /** Console command instance for styled output and interactive prompts. Null when called outside CLI. */
@@ -104,9 +119,48 @@ public function setDispatchSync(?bool $dispatchSync): self
         return $this;
     }
 
-    public function getJobExpiresAt(): int
+    public function setWithoutOverlappingJob(?bool $withoutOverlappingJob): self
     {
-        return $this->withoutOverlappingJobExpiresAt ?? config('command-schedule-job.default_without_overlapping_job_expires_at', 180);
+        $this->withoutOverlappingJob = $withoutOverlappingJob ?? false;
+        return $this;
+    }
+
+    public function setWithoutOverlappingJobReleaseAfter(?int $withoutOverlappingJobReleaseAfter): self
+    {
+        $this->withoutOverlappingJobReleaseAfter = $withoutOverlappingJobReleaseAfter;
+        return $this;
+    }
+
+    public function getWithoutOverlappingJobReleaseAfter(): int
+    {
+        return $this->withoutOverlappingJobReleaseAfter ?? config('command-schedule-job.default_without_overlapping_job_release_after', 10);
+    }
+
+    public function setWithoutOverlappingJobDontRelease(?bool $withoutOverlappingJobDontRelease): self
+    {
+        $this->withoutOverlappingJobDontRelease = $withoutOverlappingJobDontRelease ?? false;
+        return $this;
+    }
+
+    public function isWithoutOverlappingJobDontRelease(): bool
+    {
+        return $this->withoutOverlappingJobDontRelease;
+    }
+
+    public function setWithoutOverlappingJobExpiresAt(?int $withoutOverlappingJobExpiresAt): self
+    {
+        $this->withoutOverlappingJobExpiresAt = $withoutOverlappingJobExpiresAt;
+        return $this;
+    }
+
+    public function getWithoutOverlappingJobExpiresAt(): int
+    {
+        return $this->withoutOverlappingJobExpiresAt ?? config('command-schedule-job.default_without_overlapping_job_expires_at', 3600);
+    }
+
+    public function getShouldBeUniqueJobExpiresAt(): int
+    {
+        return $this->shouldBeUniqueJobExpiresAt ?? config('command-schedule-job.default_should_be_unique_job_expires_at', 3 * 60 * 60);
     }
 
     public function getJobClass(): ?string
@@ -138,8 +192,14 @@ public function setDispatchSync(?bool $dispatchSync): self
             'frequency' => $this->scheduleFrequency,
             'frequency_args' => $this->scheduleFrequencyArgs,
             'description' => $this->commandDescription ?: null,
+            'should_be_unique_job' => $this->shouldBeUniqueJob,
             'without_overlapping_job' => $this->withoutOverlappingJob,
         ];
+    }
+
+    public function isSchedulable(): bool
+    {
+        return $this->schedulable;
     }
 
     public function getScheduleFrequency(): ?string
@@ -157,7 +217,12 @@ public function setDispatchSync(?bool $dispatchSync): self
         return $this->getScheduleConfig()?->schedule_console_args ?? $this->scheduleConsoleArgs;
     }
 
-    public function getWithoutOverlappingJob(): bool
+    public function isShouldBeUniqueJob(): bool
+    {
+        return $this->getScheduleConfig()?->should_be_unique_job ?? $this->shouldBeUniqueJob;
+    }
+
+    public function isWithoutOverlappingJob(): bool
     {
         return $this->getScheduleConfig()?->without_overlapping_job ?? $this->withoutOverlappingJob;
     }

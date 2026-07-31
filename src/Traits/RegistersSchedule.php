@@ -13,6 +13,12 @@ trait RegistersSchedule
 
     protected function registerSchedule(): void
     {
+        // Hard opt-out: a non-schedulable service must never enter the cron,
+        // regardless of any stored schedule config.
+        if (!$this->schedulable) {
+            return;
+        }
+
         $scheduleConfig = $this->getScheduleConfig();
 
         if (!$scheduleConfig || !$scheduleConfig->schedule_enabled)

@@ -5,7 +5,9 @@ namespace ArtemYurov\CommandScheduleJob\Traits;
 use ArtemYurov\CommandScheduleJob\DTO\JobInfo;
 use ArtemYurov\CommandScheduleJob\Enums\JobStatus;
 use Carbon\Carbon;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 trait DispatchesJobs
 {
@@ -13,7 +15,7 @@ trait DispatchesJobs
     {
         $job = new $this->jobClass(...$args);
 
-        if ($this->getWithoutOverlappingJob()) {
+        if ($this->isShouldBeUniqueJob()) {
             $tags = $this->resolveJobTags($job);
             $activeJobs = $this->getActiveJobsByTags($tags);
 
@@ -35,12 +37,105 @@ trait DispatchesJobs
             }
         }
 
-        $this->dispatchSync ? $job->dispatchSync(...$args) : $job->dispatch(...$args);
+        if ($this->isWithoutOverlappingJob()) {
+            $this->attachOverlapMiddleware($job);
+        }
+
+        // This exact instance; static $job::dispatch(...$args) would rebuild a second job.
+        $this->dispatchSync ? dispatch_sync($job) : dispatch($job);
+    }
+
+    /** Attach the overlap middleware. No-op if it could never run, or the job has its own. */
+    protected function attachOverlapMiddleware(object $job): void
+    {
+        // Middleware runs only in CallQueuedHandler; dispatchNow() ignores it, and the
+        // write would add a dynamic property (deprecated in PHP 8.2+) without Queueable.
+        if (!$job instanceof ShouldQueue) {
+            Log::warning('Overlap prevention skipped for ' . static::class . ': ' . get_class($job)
+                . ' does not implement ShouldQueue, so job middleware is never applied.');
+
+            return;
+        }
+
+        // Stacking ours on the job's own means two locks under different keys.
+        if ($this->hasOverlapMiddleware($job)) {
+            Log::debug('Overlap middleware already declared by ' . get_class($job)
+                . ', skipping the one from ' . static::class . '.');
+
+            return;
+        }
+
+        // Append (through() would replace it, dropping Loggable's middleware);
+        // CallQueuedHandler merges this property with middleware() at run time.
+        $job->middleware = array_merge($job->middleware ?? [], [$this->resolveOverlapMiddleware($job)]);
+    }
+
+    /** Whether the job already carries an overlap middleware — property or middleware(). */
+    protected function hasOverlapMiddleware(object $job): bool
+    {
+        $overlapClasses = array_filter([
+            \Illuminate\Queue\Middleware\WithoutOverlapping::class,
+            \ArtemYurov\JobLog\Middleware\JobLogWithoutOverlapping::class,
+        ], 'class_exists');
+
+        // Same pair CallQueuedHandler pipes the job through.
+        $middleware = array_merge(
+            $job->middleware ?? [],
+            method_exists($job, 'middleware') ? $job->middleware() : [],
+        );
+
+        foreach ($middleware as $item) {
+            // Laravel accepts middleware as objects, class names or "Class@method" strings.
+            $class = match (true) {
+                is_object($item) => $item::class,
+                is_string($item) => strtok($item, '@'),
+                default => null,
+            };
+
+            if ($class === null) {
+                continue;
+            }
+
+            foreach ($overlapClasses as $overlapClass) {
+                // $allow_string also matches subclasses.
+                if (is_a($class, $overlapClass, true)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** Overlap middleware: JobLog's when db-joblog is present and the job is Loggable, else native. */
+    protected function resolveOverlapMiddleware(object $job): object
+    {
+        $delay = $this->getWithoutOverlappingJobReleaseAfter();
+
+        if (class_exists(\ArtemYurov\JobLog\Middleware\JobLogWithoutOverlapping::class)
+            && in_array(\ArtemYurov\JobLog\Traits\Loggable::class, class_uses_recursive($job), true)) {
+            $mw = new \ArtemYurov\JobLog\Middleware\JobLogWithoutOverlapping($delay);
+        } else {
+            // Key = class + sorted tags (order-independent); no tags → class alone, never shared.
+            $tags = $this->resolveJobTags($job);
+            sort($tags);
+            $key = 'csj-overlap:' . get_class($job) . ($tags ? ':' . implode('|', $tags) : '');
+
+            $mw = (new \Illuminate\Queue\Middleware\WithoutOverlapping($key))
+                ->releaseAfter($delay)
+                ->expireAfter($this->getWithoutOverlappingJobExpiresAt());
+        }
+
+        // dontRelease() = drop instead of serialize (null release delay).
+        if ($this->isWithoutOverlappingJobDontRelease()) {
+            $mw->dontRelease();
+        }
+
+        return $mw;
     }
 
     /**
-     * Resolve tags for a job instance.
-     * Uses job's tags() method if available, falls back to Horizon Tags::for().
+     * Resolve tags for a job — job's tags() method, then db-joblog resolver, then Horizon.
      */
     protected function resolveJobTags(object $job): array
     {
@@ -87,7 +182,7 @@ trait DispatchesJobs
                 \ArtemYurov\JobLog\Enums\JobLogStatus::QUEUED,
                 \ArtemYurov\JobLog\Enums\JobLogStatus::PROCESSING,
             ])
-            ->where('queued_at', '>=', now()->subMinutes($this->getJobExpiresAt()));
+            ->where('queued_at', '>=', now()->subSeconds($this->getShouldBeUniqueJobExpiresAt()));
 
         foreach ($tags as $tag) {
             $query->whereJsonContains('tags', $tag);
@@ -111,7 +206,7 @@ trait DispatchesJobs
      */
     protected function getActiveJobsViaHorizon(array $tags): Collection
     {
-        $expiresAtThreshold = now()->subMinutes($this->getJobExpiresAt());
+        $expiresAtThreshold = now()->subSeconds($this->getShouldBeUniqueJobExpiresAt());
 
         return app(\Laravel\Horizon\Contracts\JobRepository::class)->getPending()
             ->where('name', $this->jobClass)

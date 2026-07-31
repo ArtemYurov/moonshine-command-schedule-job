@@ -50,6 +50,9 @@ class CommandScheduleJobResource extends ModelResource
 
     protected ?Schedule $schedule = null;
 
+    /** Memoized schedulable resolution keyed by service class (avoids re-resolving app($class) per canSee call). */
+    private array $schedulableCache = [];
+
     /**
      * @return list<FieldContract>
      */
@@ -95,21 +98,25 @@ class CommandScheduleJobResource extends ModelResource
                     return $command ? (string) Snippet::make($command)->customAttributes(['style' => 'flex-direction: row-reverse;']) : '—';
                 }),
                 Switcher::make(__('command-schedule-job::messages.resource.scheduler_enabled'), 'schedule_enabled')
-                    ->canSee(fn() => $this->getItem() && $this->getItem()->frequency !== null),
+                    ->canSee(fn() => $this->isScheduleVisible()),
                 Select::make(__('command-schedule-job::messages.resource.frequency'), 'frequency')
                     ->searchable()
                     ->options($this->getFrequencyOptions())
-                    ->canSee(fn($ctx) => $ctx->getData()?->getOriginal()->frequency !== null),
+                    ->canSee(fn() => $this->isScheduleVisible()),
                 Json::make(__('command-schedule-job::messages.resource.arguments'), 'frequency_args')
                     ->onlyValue()
                     ->removable()
-                    ->canSee(fn($ctx) => $ctx->getData()?->getOriginal()->frequency !== null),
+                    ->canSee(fn() => $this->isScheduleVisible()),
                 Text::make(__('command-schedule-job::messages.resource.console_args'), 'schedule_console_args')
                     ->hint(__('command-schedule-job::messages.resource.console_args_hint'))
                     ->nullable()
-                    ->canSee(fn($ctx) => $ctx->getData()?->getOriginal()->frequency !== null),
+                    ->canSee(fn() => $this->isScheduleVisible()),
+                Switcher::make(__('command-schedule-job::messages.resource.should_be_unique_job'), 'should_be_unique_job')
+                    ->hint(__('command-schedule-job::messages.resource.should_be_unique_job_hint'))
+                    ->canSee(fn() => $this->isJobVisible()),
                 Switcher::make(__('command-schedule-job::messages.resource.without_overlapping_job'), 'without_overlapping_job')
-                    ->canSee(fn() => $this->getItem() && $this->serviceHasJob($this->getItem()->service_class)),
+                    ->hint(__('command-schedule-job::messages.resource.without_overlapping_job_hint'))
+                    ->canSee(fn() => $this->isJobVisible()),
             ]),
         ];
     }
@@ -151,6 +158,7 @@ class CommandScheduleJobResource extends ModelResource
             ],
             'frequency_args' => ['nullable', 'array'],
             'description' => ['nullable', 'string'],
+            'should_be_unique_job' => ['boolean'],
             'without_overlapping_job' => ['boolean'],
         ];
     }
@@ -255,6 +263,52 @@ class CommandScheduleJobResource extends ModelResource
         } catch (Exception $e) {
             return false;
         }
+    }
+
+    private function serviceIsSchedulable(?string $serviceClass): bool
+    {
+        if (!$serviceClass) {
+            return false;
+        }
+
+        return $this->schedulableCache[$serviceClass] ??= (function () use ($serviceClass): bool {
+            try {
+                if (!class_exists($serviceClass)) {
+                    return false;
+                }
+
+                $service = app($serviceClass);
+
+                return $service instanceof CommandScheduleJobService && $service->isSchedulable();
+            } catch (Exception $e) {
+                return false;
+            }
+        })();
+    }
+
+    /**
+     * Whether the current item's schedule fields should be shown: it has a
+     * frequency and its service is schedulable. Service resolution is memoized in
+     * serviceIsSchedulable(), so the four schedule fields share one computation.
+     */
+    private function isScheduleVisible(): bool
+    {
+        $item = $this->getItem();
+
+        return $item !== null
+            && $item->frequency !== null
+            && $this->serviceIsSchedulable($item->service_class);
+    }
+
+    /**
+     * Whether the current item's job fields (unique / overlap) should be shown:
+     * its service dispatches a job.
+     */
+    private function isJobVisible(): bool
+    {
+        $item = $this->getItem();
+
+        return $item !== null && $this->serviceHasJob($item->service_class);
     }
 
     private function getCommandSignature(string $serviceClass): string
