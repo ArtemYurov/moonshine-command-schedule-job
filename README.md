@@ -1,9 +1,9 @@
 # MoonShine Command Schedule Job
 
 [![PHP](https://img.shields.io/badge/PHP-8.2+-blue.svg)](https://www.php.net)
-[![Laravel](https://img.shields.io/badge/Laravel-11|12-red.svg)](https://laravel.com)
+[![Laravel](https://img.shields.io/badge/Laravel-11|12|13-red.svg)](https://laravel.com)
 [![MoonShine](https://img.shields.io/badge/MoonShine-4.x-purple.svg)](https://moonshine-laravel.com)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 **One class = artisan command + scheduler + queue job + admin UI.**
 
@@ -179,7 +179,7 @@ Core functionality works without these. Job deduplication and termination are en
 ## Requirements
 
 - PHP 8.2+
-- Laravel 11 or 12
+- Laravel 11, 12 or 13
 - MoonShine 4.x
 
 ## License
