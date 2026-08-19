@@ -37,8 +37,8 @@ abstract class CommandScheduleJobService
     /** Job deduplication — drop/takeover an already-active job before dispatch (ShouldBeUnique semantics). Opt-in. */
     protected bool $shouldBeUniqueJob = false;
 
-    /** Active job lookup window (seconds). null = from config default_should_be_unique_job_expires_at */
-    protected ?int $shouldBeUniqueJobExpiresAt = null;
+    /** How old an active job may be before the dispatch guard ignores it: seconds from queued_at. null = from config default_should_be_unique_job_expires_after */
+    protected ?int $shouldBeUniqueJobExpiresAfter = null;
 
     /** Execution-level overlap prevention — attach middleware on dispatch (serialize via release/retry, not drop) */
     protected bool $withoutOverlappingJob = false;
@@ -49,8 +49,8 @@ abstract class CommandScheduleJobService
     /** Overlap behaviour — serialize (release/retry, default) vs drop (dontRelease). Code-only (no DB column); drop can silently discard work. */
     protected bool $withoutOverlappingJobDontRelease = false;
 
-    /** Native fallback lock TTL (seconds); should cover the job's max run time. null = from config default_without_overlapping_job_expires_at */
-    protected ?int $withoutOverlappingJobExpiresAt = null;
+    /** How old a run may be before the overlap middleware writes it off: seconds from started_at. Staleness cap for the JobLog variant, lock TTL for the native one. null = from config default_without_overlapping_job_expires_after */
+    protected ?int $withoutOverlappingJobExpiresAfter = null;
 
     /** Console command instance for styled output and interactive prompts. Null when called outside CLI. */
     protected ?Command $command = null;
@@ -147,20 +147,20 @@ public function setDispatchSync(?bool $dispatchSync): self
         return $this->withoutOverlappingJobDontRelease;
     }
 
-    public function setWithoutOverlappingJobExpiresAt(?int $withoutOverlappingJobExpiresAt): self
+    public function setWithoutOverlappingJobExpiresAfter(?int $withoutOverlappingJobExpiresAfter): self
     {
-        $this->withoutOverlappingJobExpiresAt = $withoutOverlappingJobExpiresAt;
+        $this->withoutOverlappingJobExpiresAfter = $withoutOverlappingJobExpiresAfter;
         return $this;
     }
 
-    public function getWithoutOverlappingJobExpiresAt(): int
+    public function getWithoutOverlappingJobExpiresAfter(): int
     {
-        return $this->withoutOverlappingJobExpiresAt ?? config('command-schedule-job.default_without_overlapping_job_expires_at', 3600);
+        return $this->withoutOverlappingJobExpiresAfter ?? config('command-schedule-job.default_without_overlapping_job_expires_after', 3600);
     }
 
-    public function getShouldBeUniqueJobExpiresAt(): int
+    public function getShouldBeUniqueJobExpiresAfter(): int
     {
-        return $this->shouldBeUniqueJobExpiresAt ?? config('command-schedule-job.default_should_be_unique_job_expires_at', 3 * 60 * 60);
+        return $this->shouldBeUniqueJobExpiresAfter ?? config('command-schedule-job.default_should_be_unique_job_expires_after', 3 * 60 * 60);
     }
 
     public function getJobClass(): ?string

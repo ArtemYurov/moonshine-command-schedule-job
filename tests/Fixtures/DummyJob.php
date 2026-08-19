@@ -14,6 +14,9 @@ class DummyJob implements ShouldQueue
 
     public static bool $dispatched = false;
 
+    /** Set by tests that exercise timeout-derived behaviour. */
+    public ?int $timeout = null;
+
     public function __construct()
     {
         //

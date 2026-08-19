@@ -11,6 +11,10 @@ use Illuminate\Support\Facades\Log;
 
 trait DispatchesJobs
 {
+    /** Seconds added on top of a job's timeout when the configured overlap expiry is too short. */
+    protected const OVERLAP_EXPIRY_MARGIN = 60;
+
+
     protected function dispatchJob(...$args): void
     {
         $job = new $this->jobClass(...$args);
@@ -43,6 +47,32 @@ trait DispatchesJobs
 
         // This exact instance; static $job::dispatch(...$args) would rebuild a second job.
         $this->dispatchSync ? dispatch_sync($job) : dispatch($job);
+    }
+
+    /**
+     * Overlap expiry, never shorter than the job it protects.
+     *
+     * A job cannot outlive its own `timeout` by more than signal delivery — the worker
+     * arms SIGALRM and kills it — so the configured value only has to clear that plus a
+     * small margin. Below it the native lock would expire mid-run and let a second
+     * execution in, which is what the middleware exists to prevent.
+     */
+    protected function resolveOverlapExpiresAfter(object $job): int
+    {
+        $configured = $this->getWithoutOverlappingJobExpiresAfter();
+        $timeout = $job->timeout ?? 0;
+
+        if ($timeout <= 0 || $timeout + self::OVERLAP_EXPIRY_MARGIN <= $configured) {
+            return $configured;
+        }
+
+        $raised = $timeout + self::OVERLAP_EXPIRY_MARGIN;
+
+        Log::warning('Overlap expiry of ' . $configured . 's is shorter than the timeout of '
+            . get_class($job) . ' (' . $timeout . 's); using ' . $raised . 's instead. '
+            . 'Raise $withoutOverlappingJobExpiresAfter or the package default to silence this.');
+
+        return $raised;
     }
 
     /** Attach the overlap middleware. No-op if it could never run, or the job has its own. */
@@ -107,26 +137,36 @@ trait DispatchesJobs
         return false;
     }
 
-    /** Overlap middleware: JobLog's when db-joblog is present and the job is Loggable, else native. */
+    /**
+     * Overlap middleware: JobLog's when db-joblog is present and the job is Loggable, else native.
+     *
+     * The branch decides only the class and the key; both share the native fluent
+     * contract (JobLogWithoutOverlapping extends WithoutOverlapping), so the settings
+     * are applied once, after it. Keeping expireAfter() inside the native branch used
+     * to be correct — the JobLog variant had no TTL at all — but now it would silently
+     * ignore $withoutOverlappingJobExpiresAfter for every Loggable job.
+     */
     protected function resolveOverlapMiddleware(object $job): object
     {
-        $delay = $this->getWithoutOverlappingJobReleaseAfter();
-
         if (class_exists(\ArtemYurov\JobLog\Middleware\JobLogWithoutOverlapping::class)
             && in_array(\ArtemYurov\JobLog\Traits\Loggable::class, class_uses_recursive($job), true)) {
-            $mw = new \ArtemYurov\JobLog\Middleware\JobLogWithoutOverlapping($delay);
+            // Key comes from the job's JobLog tags, built inside the middleware.
+            $mw = new \ArtemYurov\JobLog\Middleware\JobLogWithoutOverlapping();
         } else {
             // Key = class + sorted tags (order-independent); no tags → class alone, never shared.
             $tags = $this->resolveJobTags($job);
             sort($tags);
             $key = 'csj-overlap:' . get_class($job) . ($tags ? ':' . implode('|', $tags) : '');
 
-            $mw = (new \Illuminate\Queue\Middleware\WithoutOverlapping($key))
-                ->releaseAfter($delay)
-                ->expireAfter($this->getWithoutOverlappingJobExpiresAt());
+            $mw = new \Illuminate\Queue\Middleware\WithoutOverlapping($key);
         }
 
-        // dontRelease() = drop instead of serialize (null release delay).
+        // Per-service override first, package config as the fallback — see the getters.
+        $mw->releaseAfter($this->getWithoutOverlappingJobReleaseAfter())
+            ->expireAfter($this->resolveOverlapExpiresAfter($job));
+
+        // dontRelease() = drop instead of serialize (null release delay). Strictly after
+        // releaseAfter(), which it overwrites.
         if ($this->isWithoutOverlappingJobDontRelease()) {
             $mw->dontRelease();
         }
@@ -182,13 +222,23 @@ trait DispatchesJobs
                 \ArtemYurov\JobLog\Enums\JobLogStatus::QUEUED,
                 \ArtemYurov\JobLog\Enums\JobLogStatus::PROCESSING,
             ])
-            ->where('queued_at', '>=', now()->subSeconds($this->getShouldBeUniqueJobExpiresAt()));
+            ->where('queued_at', '>=', now()->subSeconds($this->getShouldBeUniqueJobExpiresAfter()));
 
         foreach ($tags as $tag) {
             $query->whereJsonContains('tags', $tag);
         }
 
-        return $query->get()->map(fn ($jobLog) => new JobInfo(
+        // A killed worker writes no final status, so a PROCESSING row can outlive the
+        // process that made the claim. JobLog::isActive() is where that rule lives.
+        $rows = $query->get();
+        $alive = $rows->filter(fn ($jobLog) => $jobLog->isActive());
+
+        if ($alive->count() !== $rows->count()) {
+            Log::debug('Ignoring ' . ($rows->count() - $alive->count())
+                . ' job log(s) whose worker is gone.', ['tags' => $tags]);
+        }
+
+        return $alive->map(fn ($jobLog) => new JobInfo(
             jobUuid: $jobLog->job_uuid,
             status: JobStatus::tryFrom($jobLog->status->value) ?? JobStatus::PROCESSING,
             connection: $jobLog->connection,
@@ -206,7 +256,7 @@ trait DispatchesJobs
      */
     protected function getActiveJobsViaHorizon(array $tags): Collection
     {
-        $expiresAtThreshold = now()->subSeconds($this->getShouldBeUniqueJobExpiresAt());
+        $expiresAtThreshold = now()->subSeconds($this->getShouldBeUniqueJobExpiresAfter());
 
         return app(\Laravel\Horizon\Contracts\JobRepository::class)->getPending()
             ->where('name', $this->jobClass)

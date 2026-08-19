@@ -49,15 +49,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Default Should Be Unique Job Expires At
+    | Default Should Be Unique Job Expires After
     |--------------------------------------------------------------------------
     |
-    | Look-back window (seconds) for the dispatch-time uniqueness check; older
-    | active jobs are treated as stale. Per-service: $shouldBeUniqueJobExpiresAt.
+    | How old an active job may be before the dispatch-time uniqueness check ignores
+    | it: seconds from queued_at. Per-service: $shouldBeUniqueJobExpiresAfter.
+    |
+    | Same kind of value as the overlap key below, measured from a different point:
+    | this one bounds how long a job may sit queued, that one how long it may run.
     |
     */
 
-    'default_should_be_unique_job_expires_at' => 3 * 60 * 60, // 3 hours
+    'default_should_be_unique_job_expires_after' => 3 * 60 * 60, // 3 hours
 
     /*
     |--------------------------------------------------------------------------
@@ -73,15 +76,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Default Without Overlapping Job Expires At
+    | Default Without Overlapping Job Expires After
     |--------------------------------------------------------------------------
     |
-    | Lock TTL (seconds) for the NATIVE fallback middleware only (unused by the
-    | JobLog middleware); should exceed the job's max run time. Per-service:
-    | $withoutOverlappingJobExpiresAt.
+    | How old a run may be before the overlap middleware writes it off as broken
+    | rather than busy: seconds from started_at. For the JobLog middleware this is a
+    | staleness cap on PROCESSING rows, for the native fallback it IS the lock TTL.
+    | Either way a job whose own timeout would outlast this value gets it raised to
+    | timeout + 60s automatically, with a warning — so the value only has to cover
+    | jobs that declare no timeout of their own.
+    | Per-service: $withoutOverlappingJobExpiresAfter.
     |
     */
 
-    'default_without_overlapping_job_expires_at' => 60 * 60, // 1 hour
+    'default_without_overlapping_job_expires_after' => 60 * 60, // 1 hour
 
 ];

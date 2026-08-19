@@ -5,6 +5,8 @@
 [![MoonShine](https://img.shields.io/badge/MoonShine-4.x-purple.svg)](https://moonshine-laravel.com)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
+**[Русская версия (README.ru.md)](README.ru.md)**
+
 **One class = artisan command + scheduler + queue job + admin UI.**
 
 Define a single service class — the package auto-registers an artisan command and scheduler entry, with a MoonShine admin panel for managing schedules at runtime.
@@ -121,11 +123,11 @@ All three sources are merged via `CommandScheduleJobServiceRegistry`.
 | `$jobClass` | `?string` | `null` | Job class to dispatch (null = sync execution) |
 | `$schedulable` | `bool` | `true` | Code-only capability flag. When `false`, the service never enters the scheduler (no cron entry, hidden schedule fields in the admin UI) — but `php artisan <command>` still works |
 | `$shouldBeUniqueJob` | `bool` | `false` | Dispatch-guard: drop/takeover an already-active job with matching tags before dispatch |
-| `$shouldBeUniqueJobExpiresAt` | `?int` | `null` | Active-job lookup window in seconds (null = config default) |
+| `$shouldBeUniqueJobExpiresAfter` | `?int` | `null` | How old an active job may be before the dispatch guard ignores it — seconds from `queued_at` (null = config default) |
 | `$withoutOverlappingJob` | `bool` | `false` | Execution-level overlap middleware: serialize a run that hits an active peer (release/retry) |
 | `$withoutOverlappingJobReleaseAfter` | `?int` | `null` | Overlap middleware release delay in seconds (null = config default) |
 | `$withoutOverlappingJobDontRelease` | `bool` | `false` | Code-only overlap behaviour: `false` = serialize (release/retry), `true` = drop the overlapping run instead of waiting |
-| `$withoutOverlappingJobExpiresAt` | `?int` | `null` | Native fallback lock TTL in seconds (null = config default) |
+| `$withoutOverlappingJobExpiresAfter` | `?int` | `null` | How old a run may be before the overlap middleware writes it off — seconds from `started_at`; staleness cap for the JobLog variant, lock TTL for the native one. Raised to `timeout + 60s` when the job would outlast it (null = config default) |
 
 ### Storage principle
 
@@ -140,6 +142,15 @@ DB = on/off + when          code = how + how-long
 
 In serialize mode a job that hits an active peer is **released back to the queue** and retried, which consumes an attempt. So give it a retry budget — `public function retryUntil(): \DateTime` (preferred; also caps the wait) or `public int $tries > 1` — otherwise the first release exhausts its single attempt and the run is lost.
 
+Both settings — the release delay and the expiry — reach whichever middleware is chosen: the JobLog-backed one when `moonshine-db-joblog` is installed and the job is `Loggable`, the native one otherwise. What the expiry *means* differs:
+
+- **JobLog variant** — busy means a live process, so the expiry is only a staleness cap on `PROCESSING` rows: it stops a lost bookkeeping write from wedging a tag forever.
+- **Native variant** — the expiry IS the lock TTL, so a job outliving it would lose its lock mid-run.
+
+Either way a job whose own `timeout` would outlast the configured value gets the expiry raised to `timeout + 60s` automatically, with a warning naming the job — so the configured value only has to cover jobs that declare no timeout.
+
+The dispatch guard ignores `PROCESSING` records whose worker is gone — otherwise a crash would keep it skipping ticks for the whole look-back window.
+
 ---
 
 ## Configuration
@@ -153,14 +164,22 @@ return [
         'namespaces' => ['App\\Services'],
     ],
     'table' => 'command_schedule_jobs',
-    // How far back (seconds) the dispatch-guard looks for an active job.
-    'default_should_be_unique_job_expires_at' => 3 * 60 * 60,   // 3 hours
+    // How old an active job may be before the dispatch guard ignores it (from queued_at).
+    'default_should_be_unique_job_expires_after' => 3 * 60 * 60,   // 3 hours
     // Overlap middleware release delay (seconds) in serialize mode.
     'default_without_overlapping_job_release_after' => 10,      // 10 seconds
-    // Native fallback lock TTL (seconds); should cover the job's max run time.
-    'default_without_overlapping_job_expires_at' => 60 * 60,    // 1 hour
+    // How old a run may be before it is written off as broken (from started_at):
+    // staleness cap for the JobLog variant, lock TTL for the native one. Raised
+    // automatically when a job's own timeout would outlast it.
+    'default_without_overlapping_job_expires_after' => 60 * 60,  // 1 hour
 ];
 ```
+
+> **Renamed in 2.0.1.** `default_should_be_unique_job_expires_at` and
+> `default_without_overlapping_job_expires_at` became `…_expires_after`, along with the matching
+> `$…ExpiresAt` service properties, getters and setters. Both always held a duration in seconds,
+> so the `_at` suffix was a misnomer. Rename the keys if you had published the config — an
+> unrenamed one silently falls back to the package defaults.
 
 ---
 
@@ -169,8 +188,8 @@ return [
 | Package | What it enables |
 |---------|----------------|
 | `laravel/horizon` | Queue-based job search and management |
-| `artemyurov/moonshine-db-joblog` | PID-based precise job termination |
-| `ext-posix` | PID-based process termination |
+| `artemyurov/moonshine-db-joblog` | PID-based precise job termination, and the JobLog-backed overlap middleware |
+| `ext-posix` | PID-based process termination, and skipping stale `PROCESSING` records in the dispatch guard |
 
 Core functionality works without these. Job deduplication and termination are enhanced when installed.
 

@@ -131,6 +131,28 @@ class DispatchesJobsTest extends TestCase
         $this->assertInstanceOf(\Illuminate\Queue\Middleware\WithoutOverlapping::class, $middleware);
     }
 
+    public function test_resolve_overlap_middleware_applies_release_and_expiry_settings(): void
+    {
+        // Both settings must reach the middleware: the per-service override when set,
+        // the package config otherwise. Silently dropping expireAfter leaves the lock
+        // on its own default, which can be shorter than the job's timeout.
+        config()->set('command-schedule-job.default_without_overlapping_job_release_after', 7);
+        config()->set('command-schedule-job.default_without_overlapping_job_expires_after', 1234);
+
+        $middleware = $this->callProtected($this->service, 'resolveOverlapMiddleware', [new DummyJob()]);
+
+        $this->assertSame(7, $middleware->releaseAfter);
+        $this->assertSame(1234, $middleware->expiresAfter);
+
+        $this->service->setWithoutOverlappingJobReleaseAfter(11);
+        $this->service->setWithoutOverlappingJobExpiresAfter(4321);
+
+        $middleware = $this->callProtected($this->service, 'resolveOverlapMiddleware', [new DummyJob()]);
+
+        $this->assertSame(11, $middleware->releaseAfter, 'per-service override wins over config');
+        $this->assertSame(4321, $middleware->expiresAfter, 'per-service override wins over config');
+    }
+
     public function test_resolve_overlap_middleware_applies_dont_release_when_configured(): void
     {
         // dontRelease() switches the middleware from serialize (release) to drop.
@@ -143,6 +165,23 @@ class DispatchesJobsTest extends TestCase
 
         $this->assertInstanceOf(\Illuminate\Queue\Middleware\WithoutOverlapping::class, $middleware);
         $this->assertNull($middleware->releaseAfter);
+    }
+
+    public function test_overlap_expiry_is_never_shorter_than_the_job_timeout(): void
+    {
+        // A lock that expires mid-run lets a second execution in — the exact thing the
+        // middleware prevents — so a job outliving the configured value raises it.
+        config()->set('command-schedule-job.default_without_overlapping_job_expires_after', 600);
+
+        $short = new DummyJob();
+        $short->timeout = 120;
+        $mw = $this->callProtected($this->service, 'resolveOverlapMiddleware', [$short]);
+        $this->assertSame(600, $mw->expiresAfter, 'a job well inside the window keeps the configured value');
+
+        $long = new DummyJob();
+        $long->timeout = 900;
+        $mw = $this->callProtected($this->service, 'resolveOverlapMiddleware', [$long]);
+        $this->assertSame(960, $mw->expiresAfter, 'timeout + margin wins when the configured value is too short');
     }
 
     public function test_dispatch_job_attaches_overlap_middleware_even_when_sync(): void
@@ -244,14 +283,14 @@ class DispatchesJobsTest extends TestCase
         $this->assertCount(2, $job->middleware);
     }
 
-    public function test_should_be_unique_job_expires_at_falls_back_to_default(): void
+    public function test_should_be_unique_job_expires_after_falls_back_to_default(): void
     {
         // With the config key absent, the getter's inline default (3 * 60 * 60) applies.
         $cfg = config('command-schedule-job');
-        unset($cfg['default_should_be_unique_job_expires_at']);
+        unset($cfg['default_should_be_unique_job_expires_after']);
         config()->set('command-schedule-job', $cfg);
 
-        $this->assertEquals(10800, $this->service->getShouldBeUniqueJobExpiresAt());
+        $this->assertEquals(10800, $this->service->getShouldBeUniqueJobExpiresAfter());
     }
 
     /**

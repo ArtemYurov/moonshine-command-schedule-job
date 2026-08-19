@@ -18,7 +18,10 @@
         "laravel/horizon": "Required for queue-based job deduplication and termination in CommandScheduleJobService",
         "ext-posix": "Required for PID-based process termination",
         "illuminate/redis": "Required for queue job deletion via Horizon",
-        "artemyurov/moonshine-db-joblog": "^1.2 for PID-based job termination and JobLog-backed overlap middleware (older versions fall back to the native one)"
+        "artemyurov/moonshine-db-joblog": "^1.3 for PID-based job termination and JobLog-backed overlap middleware"
+    },
+    "conflict": {
+        "artemyurov/moonshine-db-joblog": "<1.3"
     },
     "autoload": {
         "psr-4": {
