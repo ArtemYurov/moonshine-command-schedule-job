@@ -5,9 +5,13 @@ namespace ArtemYurov\CommandScheduleJob\Traits;
 use ArtemYurov\CommandScheduleJob\DTO\JobInfo;
 use ArtemYurov\CommandScheduleJob\Enums\JobStatus;
 use Carbon\Carbon;
+use Illuminate\Bus\Batchable;
+use Illuminate\Bus\PendingBatch;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
+use LogicException;
 
 trait DispatchesJobs
 {
@@ -47,6 +51,96 @@ trait DispatchesJobs
 
         // This exact instance; static $job::dispatch(...$args) would rebuild a second job.
         $this->dispatchSync ? dispatch_sync($job) : dispatch($job);
+    }
+
+    /**
+     * Short path from outside: a fresh service straight from the container.
+     *
+     * $dispatchSync has no default because this resolves a NEW instance — naming it is what
+     * keeps a service's own handle() from silently dropping the flag the command set. Inside
+     * a service use $this->newBatch() instead.
+     */
+    public static function batch(iterable $items, bool $dispatchSync, array $args = []): ?PendingBatch
+    {
+        return static::make()->setDispatchSync($dispatchSync)->newBatch($items, $args);
+    }
+
+    /** The service itself, for when setters are needed before batching. */
+    public static function make(): static
+    {
+        return app(static::class);
+    }
+
+    /**
+     * Batch version of dispatchJob(): one job per item, same service flags.
+     *
+     * Items, not jobs: the class is always $this->jobClass, the item its first constructor
+     * argument. What comes back is a native PendingBatch, used exactly like Bus::batch().
+     *
+     * @param  array  $args  extra constructor arguments, after the item
+     * @return PendingBatch|null  nothing left to do: sync already ran the jobs inline, the
+     *                            input was empty, or the guard dropped every item
+     */
+    public function newBatch(iterable $items, array $args = []): ?PendingBatch
+    {
+        if ($this->jobClass === null) {
+            throw new LogicException(static::class . ' has no $jobClass, so there is nothing to batch.');
+        }
+
+        // Up front, so the refusal does not depend on the mode: sync never reaches Bus::batch.
+        if (!in_array(Batchable::class, class_uses_recursive($this->jobClass), true)) {
+            throw new LogicException($this->jobClass . ' must use the Batchable trait to be batched.');
+        }
+
+        $jobs = [];
+        $skipped = 0;
+
+        foreach ($items as $item) {
+            $job = new $this->jobClass($item, ...$args);
+
+            // Unlike dispatchJob(): drops this item, not the whole set, and never terminates.
+            if ($this->isShouldBeUniqueJob()) {
+                $tags = $this->resolveJobTags($job);
+
+                if ($this->getActiveJobsByTags($tags)->isNotEmpty()) {
+                    Log::info('Skipping one ' . $this->jobClass . ' from ' . static::class
+                        . ': an active job already holds these tags.', ['tags' => $tags]);
+                    $skipped++;
+
+                    continue;
+                }
+            }
+
+            if ($this->isWithoutOverlappingJob()) {
+                $this->attachOverlapMiddleware($job);
+            }
+
+            $jobs[] = $job;
+        }
+
+        // An empty batch never finishes: nothing decrements pendingJobs to zero.
+        if ($jobs === []) {
+            Log::debug('Nothing to batch from ' . static::class . ($skipped > 0
+                ? ": all {$skipped} item(s) were dropped by the dispatch guard."
+                : ': no items given.'));
+
+            return null;
+        }
+
+        // Not through the batch: Laravel 11 swallows a failing sync job in Batch::add() and
+        // leaves the batch unfinished, 12/13 propagate. This loop is the same on all three.
+        if ($this->dispatchSync) {
+            Log::debug('Dispatching ' . count($jobs) . ' job(s) inline from ' . static::class . ': sync mode.');
+
+            foreach ($jobs as $job) {
+                dispatch_sync($job);
+            }
+
+            return null;
+        }
+
+        // The bulk path ignores $job->queue and uses the batch option, so it must be set.
+        return Bus::batch($jobs)->onQueue($jobs[0]->queue ?? null);
     }
 
     /**

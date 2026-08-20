@@ -153,6 +153,26 @@ The dispatch guard ignores `PROCESSING` records whose worker is gone — otherwi
 
 ---
 
+## Dispatching a set
+
+`dispatchJob(...$args)` dispatches one job; `batch()` builds a set as a native `PendingBatch` with the same flags on every job. You pass **items, not jobs** — the class is always `$jobClass` (which must use `Batchable`), the item is its first constructor argument, `$args` follow.
+
+```php
+$batch = LoadPaymentsService::batch($accounts, $dispatchSync, [$dryRun])   // from outside
+    ?->name('load payments')
+    ->allowFailures()
+    ->dispatch();
+
+Service::make()->setSomething(...)->newBatch($items, $args);   // when setters come first
+$this->newBatch($items, $args);                                // inside the service's own handle()
+```
+
+`null` means nothing is left to do: sync already ran the jobs inline, the input was empty, or the guard dropped every item. Sync builds no batch, so those jobs carry no batch id and chained callbacks never fire.
+
+`$dispatchSync` has no default because the static resolves a *fresh* service. Three things then differ from a hand-rolled `Bus::batch`: a busy tag drops **that one item** rather than the whole set (and never terminates the job holding it); the queue is preset from the first job's `$queue`, since batches bypass the dispatcher; and waiting is yours, because the native batch cannot wait either.
+
+---
+
 ## Configuration
 
 ```php
