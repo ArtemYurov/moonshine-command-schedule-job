@@ -193,7 +193,6 @@ public function setDispatchSync(?bool $dispatchSync): self
             'frequency_args' => $this->scheduleFrequencyArgs,
             'description' => $this->commandDescription ?: null,
             'should_be_unique_job' => $this->shouldBeUniqueJob,
-            'without_overlapping_job' => $this->withoutOverlappingJob,
         ];
     }
 
@@ -222,9 +221,10 @@ public function setDispatchSync(?bool $dispatchSync): self
         return $this->getScheduleConfig()?->should_be_unique_job ?? $this->shouldBeUniqueJob;
     }
 
+    /** Code-only: whether a task tolerates a concurrent run is a property of the task. */
     public function isWithoutOverlappingJob(): bool
     {
-        return $this->getScheduleConfig()?->without_overlapping_job ?? $this->withoutOverlappingJob;
+        return $this->withoutOverlappingJob;
     }
 
 }

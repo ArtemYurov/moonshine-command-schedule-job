@@ -18,7 +18,6 @@ class CommandScheduleJob extends Model
         'last_run_at',
         'description',
         'should_be_unique_job',
-        'without_overlapping_job',
     ];
 
     public function getTable(): string
@@ -31,7 +30,6 @@ class CommandScheduleJob extends Model
         'frequency_args' => 'array',
         'last_run_at' => 'datetime',
         'should_be_unique_job' => 'boolean',
-        'without_overlapping_job' => 'boolean',
     ];
 
     public function updateLastRunAt(?Carbon $lastRun = null): void
@@ -57,7 +55,7 @@ class CommandScheduleJob extends Model
         } else {
             $data['schedule_enabled'] = $existing->schedule_enabled && !empty($data['frequency']);
 
-            unset($data['frequency'], $data['frequency_args'], $data['should_be_unique_job'], $data['without_overlapping_job']);
+            unset($data['frequency'], $data['frequency_args'], $data['should_be_unique_job']);
         }
 
         // A non-schedulable service keeps its row but can never carry an enabled

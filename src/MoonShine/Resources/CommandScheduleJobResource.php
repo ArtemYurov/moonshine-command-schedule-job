@@ -114,9 +114,6 @@ class CommandScheduleJobResource extends ModelResource
                 Switcher::make(__('command-schedule-job::messages.resource.should_be_unique_job'), 'should_be_unique_job')
                     ->hint(__('command-schedule-job::messages.resource.should_be_unique_job_hint'))
                     ->canSee(fn() => $this->isJobVisible()),
-                Switcher::make(__('command-schedule-job::messages.resource.without_overlapping_job'), 'without_overlapping_job')
-                    ->hint(__('command-schedule-job::messages.resource.without_overlapping_job_hint'))
-                    ->canSee(fn() => $this->isJobVisible()),
             ]),
         ];
     }
@@ -159,7 +156,6 @@ class CommandScheduleJobResource extends ModelResource
             'frequency_args' => ['nullable', 'array'],
             'description' => ['nullable', 'string'],
             'should_be_unique_job' => ['boolean'],
-            'without_overlapping_job' => ['boolean'],
         ];
     }
 

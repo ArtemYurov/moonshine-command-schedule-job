@@ -95,11 +95,8 @@ class DispatchesJobsTest extends TestCase
     {
         Bus::fake();
 
-        // Enable execution-level overlap prevention via DB config
-        $config = \ArtemYurov\CommandScheduleJob\Models\CommandScheduleJob::findOrCreateForService(DummyJobService::class);
-        $config->update(['without_overlapping_job' => true]);
-
-        $service = $this->app->make(DummyJobService::class);
+        // Code-only flag: the DB has no say in it any more.
+        $service = $this->app->make(DummyJobService::class)->setWithoutOverlappingJob(true);
 
         $this->callProtected($service, 'dispatchJob');
 
@@ -114,7 +111,7 @@ class DispatchesJobsTest extends TestCase
     {
         Bus::fake();
 
-        // Default: without_overlapping_job is false
+        // Default: $withoutOverlappingJob is false
         $this->callProtected($this->service, 'dispatchJob');
 
         Bus::assertDispatched(DummyJob::class, function (DummyJob $job) {
@@ -190,10 +187,7 @@ class DispatchesJobsTest extends TestCase
 
         // Overlap middleware must be attached for ALL dispatches, sync included —
         // there is no !dispatchSync branch anymore.
-        $config = \ArtemYurov\CommandScheduleJob\Models\CommandScheduleJob::findOrCreateForService(DummyJobService::class);
-        $config->update(['without_overlapping_job' => true]);
-
-        $service = $this->app->make(DummyJobService::class);
+        $service = $this->app->make(DummyJobService::class)->setWithoutOverlappingJob(true);
         $service->setDispatchSync(true);
 
         $this->callProtected($service, 'dispatchJob');
@@ -223,10 +217,7 @@ class DispatchesJobsTest extends TestCase
     {
         Bus::fake();
 
-        $config = \ArtemYurov\CommandScheduleJob\Models\CommandScheduleJob::findOrCreateForService(DummyJobService::class);
-        $config->update(['without_overlapping_job' => true]);
-
-        $service = $this->app->make(DummyJobService::class);
+        $service = $this->app->make(DummyJobService::class)->setWithoutOverlappingJob(true);
         $this->setProtected($service, 'jobClass', DummyNonQueueableJob::class);
 
         $this->callProtected($service, 'dispatchJob');

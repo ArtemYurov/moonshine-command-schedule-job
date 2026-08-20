@@ -44,8 +44,6 @@ return [
         'scheduler_enabled' => 'Scheduler Enabled',
         'should_be_unique_job' => "Don't queue duplicate",
         'should_be_unique_job_hint' => 'Skip if already running',
-        'without_overlapping_job' => "Don't run in parallel",
-        'without_overlapping_job_hint' => 'Queue and wait for other active runs to finish; waiting consumes attempts (needs retryUntil or tries > 1)',
         'console_args' => 'Console Args',
         'console_args_hint' => 'e.g. --force --param=value',
         'scheduler_enabled_filter' => 'Scheduler enabled',

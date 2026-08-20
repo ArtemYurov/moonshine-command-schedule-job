@@ -62,7 +62,6 @@ class CommandScheduleJobModelTest extends TestCase
             'frequency_args' => ['08:00'],
             'description' => 'test',
             'should_be_unique_job' => true,
-            'without_overlapping_job' => false,
         ]);
 
         $schedule->refresh();
@@ -78,7 +77,6 @@ class CommandScheduleJobModelTest extends TestCase
             'schedule_enabled' => 1,
             'description' => 'test',
             'should_be_unique_job' => true,
-            'without_overlapping_job' => false,
         ]);
 
         $schedule->refresh();

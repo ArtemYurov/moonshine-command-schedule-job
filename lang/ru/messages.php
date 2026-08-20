@@ -44,8 +44,6 @@ return [
         'scheduler_enabled' => 'Планировщик включён',
         'should_be_unique_job' => 'Не ставить дубль в очередь',
         'should_be_unique_job_hint' => 'Не запускать, если уже активна',
-        'without_overlapping_job' => 'Не выполнять параллельно',
-        'without_overlapping_job_hint' => 'Запускать и ждать пока закончатся другие активные; ожидание расходует попытки (нужен retryUntil или tries > 1)',
         'console_args' => 'Аргументы консоли',
         'console_args_hint' => 'напр. --force --param=value',
         'scheduler_enabled_filter' => 'Планировщик включён',

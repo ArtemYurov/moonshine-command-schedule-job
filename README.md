@@ -135,8 +135,10 @@ All three sources are merged via `CommandScheduleJobServiceRegistry`.
 DB = on/off + when          code = how + how-long
 ```
 
-- **DB (admin-editable):** schedule (`schedule_enabled`, `frequency`, `frequency_args`, `schedule_console_args`) plus the two protection toggles (`should_be_unique_job`, `without_overlapping_job`).
-- **Code (developer, structural):** timings, serialize-vs-drop (`$withoutOverlappingJobDontRelease`), own/native middleware choice, and `$schedulable`. These never get DB columns.
+- **DB (admin-editable):** schedule (`schedule_enabled`, `frequency`, `frequency_args`, `schedule_console_args`) plus the dispatch guard (`should_be_unique_job`).
+- **Code (developer, structural):** timings, overlap prevention as a whole (`$withoutOverlappingJob` and its knobs), own/native middleware choice, and `$schedulable`. These never get DB columns.
+
+Whether a task tolerates a concurrent run is a property of the task, not an operating hour, so `$withoutOverlappingJob` is code-only — see the note under Configuration.
 
 ### Overlap prevention contract
 
@@ -194,6 +196,12 @@ return [
     'default_without_overlapping_job_expires_after' => 60 * 60,  // 1 hour
 ];
 ```
+
+> **Dropped in 2.1.0.** The `without_overlapping_job` column is gone; `$withoutOverlappingJob` is
+> now read from code only. Every other knob of the mechanism already lived there, so the column
+> held just the off switch — and `findOrCreateForService()` never re-seeded an existing row, so
+> the code property could silently disagree with production. A row that had the toggle off gets
+> the protection its code declares.
 
 > **Renamed in 2.0.1.** `default_should_be_unique_job_expires_at` and
 > `default_without_overlapping_job_expires_at` became `…_expires_after`, along with the matching
